@@ -68,7 +68,7 @@ class Agent:
 
                 # Check approval before execution
                 approved = True
-                if function_name == "write_file":
+                if function_name in ("write_file", "str_replace_file"):
                     if self.approval.needs_approval_for_write(
                         arguments["path"], arguments["content"], self.project_root
                     ):

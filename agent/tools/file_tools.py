@@ -67,6 +67,54 @@ def write_file(path: str, content: str, project_root: str) -> str:
     return f"Wrote {size} bytes to {path}"
 
 
+def str_replace_file(path: str, old_str: str, new_str: str, project_root: str) -> str:
+    """Replace a specific block of text in a file.
+
+    Args:
+        path: Path to the file (relative to project_root)
+        old_str: The exact string to find and replace
+        new_str: The string to replace it with
+        project_root: Root directory of the project
+
+    Returns:
+        A success message
+
+    Raises:
+        ValueError: If old_str is not found, or found multiple times
+    """
+    full_path = Path(project_root) / path
+
+    try:
+        full_path.resolve().relative_to(Path(project_root).resolve())
+    except ValueError:
+        raise PermissionError(
+            f"Access denied: {path} is outside the project root")
+
+    if not full_path.exists():
+        raise FileNotFoundError(f"File does not exist: {path}")
+
+    content = full_path.read_text(encoding="utf-8")
+
+    # Count occurrences to ensure we only replace one specific block
+    count = content.count(old_str)
+    if count == 0:
+        raise ValueError(
+            f"The exact string 'old_str' was not found in {path}. "
+            "Make sure whitespace and indentation match exactly."
+        )
+    if count > 1:
+        raise ValueError(
+            f"The exact string 'old_str' was found {count} times in {path}. "
+            "Please provide more surrounding context in 'old_str' to make it unique."
+        )
+
+    # Perform the replacement
+    new_content = content.replace(old_str, new_str, 1)
+    full_path.write_text(new_content, encoding="utf-8")
+
+    return f"Successfully replaced text in {path}"
+
+
 def list_context_files(project_root: str) -> str:
     """List available context files with descriptions."""
     context_dir = Path(project_root) / "context"
@@ -97,7 +145,6 @@ def list_context_files(project_root: str) -> str:
         return "Context directory exists but contains no markdown files."
 
     return "Available context files:\n" + "\n".join(sorted(items))
-
 
 
 READ_FILE_TOOL = Tool(
@@ -167,6 +214,37 @@ WRITE_FILE_TOOL = Tool(
     function=write_file,
 )
 
+STR_REPLACE_FILE_TOOL = Tool(
+    name="str_replace_file",
+    description=(
+        "Replace a specific block of text in a file. This is the preferred way "
+        "to edit existing files. Provide the exact 'old_str' to find (including "
+        "exact whitespace and indentation) and the 'new_str' to replace it with. "
+        "To insert code, include the surrounding lines in 'old_str' and add your "
+        "new code in 'new_str'. If the string is not found or found multiple "
+        "times, the tool will fail. Use read_file first to get the exact text."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Path to the file (relative to project root)",
+            },
+            "old_str": {
+                "type": "string",
+                "description": "The exact text block to replace (must match exactly)",
+            },
+            "new_str": {
+                "type": "string",
+                "description": "The new text block to insert",
+            },
+        },
+        "required": ["path", "old_str", "new_str"],
+    },
+    function=str_replace_file,
+)
+
 LIST_CONTEXT_FILES_TOOL = Tool(
     name="list_context_files",
     description=(
@@ -183,5 +261,10 @@ LIST_CONTEXT_FILES_TOOL = Tool(
     function=list_context_files,
 )
 
-FILE_TOOLS = [READ_FILE_TOOL, LIST_DIRECTORY_TOOL,
-              WRITE_FILE_TOOL, LIST_CONTEXT_FILES_TOOL]
+FILE_TOOLS = [
+    READ_FILE_TOOL,
+    LIST_DIRECTORY_TOOL,
+    WRITE_FILE_TOOL,
+    LIST_CONTEXT_FILES_TOOL,
+    STR_REPLACE_FILE_TOOL
+]
