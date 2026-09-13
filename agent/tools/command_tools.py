@@ -4,14 +4,34 @@ from pathlib import Path
 
 from agent.tools.base import Tool
 
-BLOCKED_COMMANDS = [
-    "rm -rf /",
-    "rm -rf /*",
-    "mkfs",
-    "dd if=/dev/zero",
+BLOCKED_PATTERNS = [
     ":(){:|:&};:",
-    "chmod -R 777 /"
+    "mkfs.",
+    "dd if=/dev/zero",
 ]
+
+
+def _validate_command_paths(command: str, project_root: str) -> None:
+    """Validate that all paths in the command are within project_root."""
+    root_path = Path(project_root).resolve()
+    parts = shlex.split(command)
+
+    for part in parts:
+        if part.startswith("-"):
+            continue
+
+        if ".." in part:
+            try:
+                resolved = (root_path / part).resolve()
+                resolved.relative_to(root_path)
+            except ValueError:
+                raise ValueError(f"Path escapes project root: {part}")
+
+        if part.startswith("/"):
+            try:
+                Path(part).resolve().relative_to(root_path)
+            except ValueError:
+                raise ValueError(f"Absolute path outside project root: {part}")
 
 
 def run_command(
@@ -25,9 +45,11 @@ def run_command(
         raise ValueError(f"Project root does not exist: {project_root}")
 
     command_lower = command.lower().strip()
-    for blocked in BLOCKED_COMMANDS:
-        if blocked in command_lower:
-            raise ValueError(f"Blocked command: {blocked}")
+    for pattern in BLOCKED_PATTERNS:
+        if pattern in command_lower:
+            raise ValueError(f"Blocked command pattern: {pattern}")
+    
+    _validate_command_paths(command, project_root)
 
     try:
         args = shlex.split(command)

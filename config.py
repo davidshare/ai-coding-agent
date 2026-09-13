@@ -14,6 +14,7 @@ class Config:
     max_tokens: int = 4096
     temperature: float = 0.3
     project_root: Path = Path('./target-project')
+    approval_mode: str = "smart"  # auto | confirm_writes | confirm_commands | confirm_all | smart
 
     @classmethod
     def from_env(cls) -> 'Config':
