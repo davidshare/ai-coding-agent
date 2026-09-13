@@ -1,3 +1,5 @@
+import time
+
 from groq import Groq
 
 from config import Config
@@ -26,12 +28,25 @@ class LLMclient:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
 
-        try:
-            response = self.client.chat.completions.create(**kwargs)
-            # print(f"Raw response type: {type(response)}")
+        # Retry loop for rate limits
+        for attempt in range(3):
+            try:
+                response = self.client.chat.completions.create(**kwargs)
+                break  # Success, exit the retry loop
+            except Exception as e:
+                error_str = str(e).lower()
+                # Check if it's a Groq rate limit error and we have retries left
+                if "rate_limit_exceeded" in error_str and attempt < 2:
+                    wait_time = 2 ** attempt  # Waits 1s, then 2s
+                    print(
+                        f"  [RATE LIMIT] Hit OTPM limit. Waiting {wait_time}s before retry...")
+                    time.sleep(wait_time)
+                else:
+                    # Not a rate limit, or final attempt failed. Let the outer except handle it.
+                    raise
 
+        try:
             message = response.choices[0].message
-            # print(f"Message attributes: {dir(message)}")
 
             content = message.content if message.content is not None else ""
             role = message.role if message.role is not None else "assistant"
@@ -54,8 +69,8 @@ class LLMclient:
                 if tool_calls_list:
                     result["tool_calls"] = tool_calls_list
 
-            # print(f"LLM response received (content length: {len(content)})")
             return result
+
         except Exception as e:
             print(f"LLM API error: {e}")
             return {

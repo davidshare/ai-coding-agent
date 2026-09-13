@@ -11,7 +11,8 @@ load_dotenv()
 class Config:
     groq_api_key: str
     model: str = "qwen/qwen3.8-27b"
-    max_tokens: int = 4096
+    # max_tokens: int = 4096
+    max_tokens: int = 2000
     temperature: float = 0.3
     project_root: Path = Path('./target-project')
 
@@ -50,6 +51,13 @@ class Config:
         "4. Create and activate a virtual environment\n"
         "5. Install dependencies as you discover them\n"
         "6. Document the setup in SETUP.md\n\n"
+        "FILE SIZE LIMITS:\n"
+        "If you need to create or edit a file that will be longer than 40 lines:\n"
+        "1. Do NOT write it all at once.\n"
+        "2. Write the first 30-40 lines using write_file.\n"
+        "3. Use str_replace_file to append the next 30-40 lines.\n"
+        "4. Repeat until the file is complete.\n"
+        "This prevents output truncation and token limit errors.\n\n"
         "When the user asks you to perform an action, attempt to use the "
         "appropriate tool. If the action is risky, the approval system will "
         "ask the user for confirmation. Do not refuse requests preemptively."

@@ -3,7 +3,7 @@
 ## Metadata
 - **ID**: issue-000
 - **Domain**: integration
-- **Status**: in_progress
+- **Status**: done
 - **Priority**: critical
 
 ## Definition of Ready
