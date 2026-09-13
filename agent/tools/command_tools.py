@@ -48,7 +48,7 @@ def run_command(
     for pattern in BLOCKED_PATTERNS:
         if pattern in command_lower:
             raise ValueError(f"Blocked command pattern: {pattern}")
-    
+
     _validate_command_paths(command, project_root)
 
     try:
@@ -86,20 +86,21 @@ def run_command(
 RUN_COMMAND_TOOL = Tool(
     name="run_command",
     description=(
-        "Execute a shell command in the project directory. Use this to run "
-        "tests (pytest, npm test), install dependencies (pip install, npm install), "
-        "check syntax (python -m py_compile), lint code, or perform other "
-        "operations. The command runs in the project root. Output is capped at "
-        "10KB. Use short, focused commands. Avoid interactive commands. "
-        "Commands are blocked if they include destructive operations like "
-        "'rm -rf /'. Always check exit code: 0 means success, non-zero means error."
+        "Execute a SINGLE shell command in the project directory. "
+        "DO NOT use shell chaining operators like '&&', '||', '|', or '>'. "
+        "If you need to run multiple commands, call this tool multiple times "
+        "sequentially, or write a shell script and execute it. "
+        "Use this to run tests (pytest), install dependencies (pip install), "
+        "check syntax (python -m py_compile file.py), or lint code. "
+        "The command runs in the project root. Output is capped at 10KB. "
+        "Always check exit code: 0 means success, non-zero means error."
     ),
     parameters={
         "type": "object",
         "properties": {
             "command": {
                 "type": "string",
-                "description": "The shell command to execute",
+                "description": "The single shell command to execute",
             },
             "timeout": {
                 "type": "integer",

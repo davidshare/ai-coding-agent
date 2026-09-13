@@ -67,6 +67,39 @@ def write_file(path: str, content: str, project_root: str) -> str:
     return f"Wrote {size} bytes to {path}"
 
 
+def list_context_files(project_root: str) -> str:
+    """List available context files with descriptions."""
+    context_dir = Path(project_root) / "context"
+
+    if not context_dir.exists() or not context_dir.is_dir():
+        return "No context directory found."
+
+    descriptions = {
+        "glossary.md": "Project-specific terminology and definitions",
+        "coding-standards.md": "Rules for writing code in this project",
+        "api-contract.md": "API endpoints and request/response schemas",
+        "data-schema.md": "Database tables and relationships",
+        "architecture.md": "High-level system design and tech stack",
+        "guardrails.md": "Security rules and invariants",
+        "project-overview.md": "What the project does and who uses it",
+    }
+
+    items = []
+    try:
+        for item in context_dir.iterdir():
+            if item.is_file() and item.suffix.lower() == ".md":
+                desc = descriptions.get(item.name, "No description available")
+                items.append(f"- {item.name}: {desc}")
+    except Exception as e:
+        return f"Error reading context directory: {e}"
+
+    if not items:
+        return "Context directory exists but contains no markdown files."
+
+    return "Available context files:\n" + "\n".join(sorted(items))
+
+
+
 READ_FILE_TOOL = Tool(
     name="read_file",
     description=(
@@ -134,4 +167,21 @@ WRITE_FILE_TOOL = Tool(
     function=write_file,
 )
 
-FILE_TOOLS = [READ_FILE_TOOL, LIST_DIRECTORY_TOOL, WRITE_FILE_TOOL]
+LIST_CONTEXT_FILES_TOOL = Tool(
+    name="list_context_files",
+    description=(
+        "List the available context files (specs, standards, glossary) for "
+        "the project. Call this BEFORE starting any task to understand the "
+        "project's conventions, terminology, and rules. Then use read_file "
+        "to read the relevant context files."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {},
+        "required": [],
+    },
+    function=list_context_files,
+)
+
+FILE_TOOLS = [READ_FILE_TOOL, LIST_DIRECTORY_TOOL,
+              WRITE_FILE_TOOL, LIST_CONTEXT_FILES_TOOL]
