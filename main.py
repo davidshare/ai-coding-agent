@@ -1,3 +1,4 @@
+import sys
 import traceback
 
 from agent.core import Agent
@@ -21,6 +22,17 @@ def main():
     print(f"Model: {config.model}")
     print("\nType your message: (or 'quit' to exit)")
     print("=" * 50)
+
+    if len(sys.argv) > 1 and sys.argv[1] == "--tech-lead":
+        from agent.tech_lead import TechLead
+
+        goal = " ".join(sys.argv[2:]) if len(
+            sys.argv) > 2 else "Work through the issue backlog"
+
+        tech_lead = TechLead(config)
+        summary = tech_lead.run(goal, max_workers=3)
+        print(summary)
+        return
 
     while True:
         try:

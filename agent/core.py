@@ -110,6 +110,24 @@ class Agent:
 
             self.history.append(response)
 
+            # Check if the response contains a DELEGATE command
+            if "DELEGATE:" in response.get("content", ""):
+                # Extract issue ID
+                import re
+                delegate_match = re.search(
+                    r"DELEGATE:\s*(\S+)", response["content"])
+                if delegate_match:
+                    issue_id = delegate_match.group(1)
+                    print(
+                        f"\n[AGENT] Detected DELEGATE command for {issue_id}")
+                    # Spawn a worker agent (this would be implemented next)
+                    # For now, just acknowledge it
+                    self.history.append({
+                        "role": "system",
+                        "content": f"Worker agent spawned for {issue_id}. Continue with next issue or provide summary."
+                    })
+                    continue
+
             if "tool_calls" in response and response["tool_calls"]:
                 for tool_call in response["tool_calls"]:
                     self._execute_tool_call(tool_call)
