@@ -45,6 +45,28 @@ def list_directory(path: str, project_root: str) -> str:
     return "\n".join(items) if items else "(empty directory)"
 
 
+def write_file(path: str, content: str, project_root: str) -> str:
+    full_path = Path(project_root) / path
+
+    # Security check: prevent writing outside project root
+    try:
+        full_path.resolve().relative_to(Path(project_root).resolve())
+    except ValueError:
+        raise PermissionError(
+            f"Access denied: {path} is outside the project root"
+        )
+
+    # Create parent directories if they don't exist
+    full_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Write the file
+    full_path.write_text(content, encoding="utf-8")
+
+    # Return a summary
+    size = full_path.stat().st_size
+    return f"Wrote {size} bytes to {path}"
+
+
 READ_FILE_TOOL = Tool(
     name="read_file",
     description=(
@@ -86,4 +108,30 @@ LIST_DIRECTORY_TOOL = Tool(
     function=list_directory
 )
 
-FILE_TOOLS = [READ_FILE_TOOL, LIST_DIRECTORY_TOOL]
+WRITE_FILE_TOOL = Tool(
+    name="write_file",
+    description=(
+        "Write content to a file in the project. Creates the file if it "
+        "doesn't exist, overwrites if it does. Automatically creates parent "
+        "directories. WARNING: This will overwrite existing files without "
+        "confirmation. Use read_file first to check existing content if needed. "
+        "The path should be relative to the project root."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Path to the file (relative to project root)",
+            },
+            "content": {
+                "type": "string",
+                "description": "The content to write to the file",
+            },
+        },
+        "required": ["path", "content"],
+    },
+    function=write_file,
+)
+
+FILE_TOOLS = [READ_FILE_TOOL, LIST_DIRECTORY_TOOL, WRITE_FILE_TOOL]

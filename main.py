@@ -1,7 +1,8 @@
-from agent.core import Agent
-from agent.tools.file_tools import FILE_TOOLS
-from config import Config
 import traceback
+
+from agent.core import Agent
+from agent.tools import ALL_TOOLS
+from config import Config
 
 
 def main():
@@ -14,8 +15,8 @@ def main():
         print(f"configuration error: {e}")
         return
 
-    agent = Agent(config, tools=FILE_TOOLS)
-    print(f"Agent initialised with {len(FILE_TOOLS)} tools")
+    agent = Agent(config, tools=ALL_TOOLS)
+    print(f"Agent initialised with {len(ALL_TOOLS)} tools")
     print(f" Project root: {config.project_root}")
     print(f"Model: {config.model}")
     print("\nType your message: (or 'quit' to exit)")
