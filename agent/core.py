@@ -13,8 +13,16 @@ class Agent:
         self.history: list[dict] = []
         self.project_root = str(config.project_root)
         self.approval = ApprovalManager(config.approval_mode)
+        self.system_prompt = config.system_prompt
 
     def run(self, user_message: str) -> str:
+
+        if not self.history and self.system_prompt:
+            self.history.append({
+                "role": "system",
+                "content": self.system_prompt,
+            })
+
         self.history.append({
             "role": "user",
             "content": user_message,
