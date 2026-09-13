@@ -147,6 +147,108 @@ def list_context_files(project_root: str) -> str:
     return "Available context files:\n" + "\n".join(sorted(items))
 
 
+def list_issues(project_root: str, status: str | None = None) -> str:
+    """List available issues in the project.
+
+    Args:
+        project_root: Root directory of the project
+        status: Optional filter (backlog, in_progress, done, blocked)
+
+    Returns:
+        A formatted list of issues with their status
+    """
+    issues_dir = Path(project_root) / "issues"
+
+    if not issues_dir.exists():
+        return "No issues directory found."
+
+    issues = []
+    for domain_dir in sorted(issues_dir.iterdir()):
+        if not domain_dir.is_dir():
+            continue
+
+        for issue_file in sorted(domain_dir.glob("*.md")):
+            content = issue_file.read_text(encoding="utf-8")
+
+            # Extract metadata from the file
+            title = "Unknown"
+            issue_status = "unknown"
+            priority = "unknown"
+
+            for line in content.splitlines():
+                if line.startswith("# Issue:"):
+                    title = line.replace("# Issue:", "").strip()
+                elif line.startswith("- **Status**:"):
+                    issue_status = line.split(":")[-1].strip()
+                elif line.startswith("- **Priority**:"):
+                    priority = line.split(":")[-1].strip()
+
+            # Apply status filter if provided
+            if status and issue_status != status:
+                continue
+
+            relative_path = issue_file.relative_to(issues_dir)
+            issues.append(
+                f"- [{issue_status.upper()}] {issue_file.stem}: {title} "
+                f"(priority: {priority}, path: {relative_path})"
+            )
+
+    if not issues:
+        return "No issues found" + (f" with status '{status}'." if status else ".")
+
+    return "Available issues:\n" + "\n".join(issues)
+
+
+def update_issue_status(
+    issue_path: str,
+    new_status: str,
+    project_root: str
+) -> str:
+    """Update the status of an issue.
+
+    Args:
+        issue_path: Path to the issue file (relative to issues/ directory)
+        new_status: New status (backlog, in_progress, done, blocked)
+        project_root: Root directory of the project
+
+    Returns:
+        A success message
+    """
+    valid_statuses = {"backlog", "in_progress", "done", "blocked"}
+    if new_status not in valid_statuses:
+        raise ValueError(
+            f"Invalid status '{new_status}'. Must be one of: {valid_statuses}"
+        )
+
+    full_path = Path(project_root) / "issues" / issue_path
+
+    try:
+        full_path.resolve().relative_to((Path(project_root) / "issues").resolve())
+    except ValueError:
+        raise PermissionError(
+            f"Access denied: {issue_path} is outside issues directory")
+
+    if not full_path.exists():
+        raise FileNotFoundError(f"Issue file not found: {issue_path}")
+
+    content = full_path.read_text(encoding="utf-8")
+
+    # Find and replace the status line
+    lines = content.splitlines()
+    updated = False
+    for i, line in enumerate(lines):
+        if line.startswith("- **Status**:"):
+            lines[i] = f"- **Status**: {new_status}"
+            updated = True
+            break
+
+    if not updated:
+        raise ValueError("Could not find status field in issue file")
+
+    full_path.write_text("\n".join(lines), encoding="utf-8")
+    return f"Updated {issue_path} status to '{new_status}'"
+
+
 READ_FILE_TOOL = Tool(
     name="read_file",
     description=(
@@ -261,10 +363,59 @@ LIST_CONTEXT_FILES_TOOL = Tool(
     function=list_context_files,
 )
 
+LIST_ISSUES_TOOL = Tool(
+    name="list_issues",
+    description=(
+        "List all issues in the project. Optionally filter by status "
+        "(backlog, in_progress, done, blocked). Use this to see what work "
+        "is available. Check the Definition of Ready in each issue before "
+        "starting work."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "status": {
+                "type": "string",
+                "description": "Filter by status (backlog, in_progress, done, blocked)",
+                "enum": ["backlog", "in_progress", "done", "blocked"],
+            },
+        },
+        "required": [],
+    },
+    function=list_issues,
+)
+
+UPDATE_ISSUE_STATUS_TOOL = Tool(
+    name="update_issue_status",
+    description=(
+        "Update the status of an issue. Call this when starting work "
+        "(set to 'in_progress') and when finished (set to 'done'). "
+        "If you encounter a blocker, set status to 'blocked' and explain why."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "issue_path": {
+                "type": "string",
+                "description": "Path to issue file relative to issues/ (e.g., backend/issue-001-create-task-api.md)",
+            },
+            "new_status": {
+                "type": "string",
+                "description": "New status",
+                "enum": ["backlog", "in_progress", "done", "blocked"],
+            },
+        },
+        "required": ["issue_path", "new_status"],
+    },
+    function=update_issue_status,
+)
+
 FILE_TOOLS = [
     READ_FILE_TOOL,
     LIST_DIRECTORY_TOOL,
     WRITE_FILE_TOOL,
     LIST_CONTEXT_FILES_TOOL,
-    STR_REPLACE_FILE_TOOL
+    STR_REPLACE_FILE_TOOL,
+    LIST_ISSUES_TOOL,
+    UPDATE_ISSUE_STATUS_TOOL
 ]

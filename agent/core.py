@@ -28,7 +28,7 @@ class Agent:
             "content": user_message,
         })
 
-        max_iterations = 10
+        max_iterations = 40
         iteration = 0
 
         while iteration < max_iterations:
@@ -68,13 +68,17 @@ class Agent:
 
                 # Check approval before execution
                 approved = True
-                if function_name in ("write_file", "str_replace_file"):
+                if function_name in ("write_file", "append_to_file", "str_replace_file"):
                     if self.approval.needs_approval_for_write(
                         arguments["path"], arguments["content"], self.project_root
                     ):
                         approved = self.approval.request_write_approval(
                             arguments["path"], arguments["content"], self.project_root
                         )
+
+                elif function_name == "update_issue_status":
+                    # Issue status updates are low-risk, no approval needed
+                    approved = True
                 elif function_name == "run_command":
                     if self.approval.needs_approval_for_command(arguments["command"]):
                         approved = self.approval.request_command_approval(
