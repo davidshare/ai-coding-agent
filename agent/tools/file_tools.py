@@ -98,10 +98,13 @@ def str_replace_file(path: str, old_str: str, new_str: str, project_root: str) -
     # Count occurrences to ensure we only replace one specific block
     count = content.count(old_str)
     if count == 0:
-        raise ValueError(
-            f"The exact string 'old_str' was not found in {path}. "
-            "Make sure whitespace and indentation match exactly."
-        )
+        # Help the agent by showing exactly what it failed to match
+        first_words = " ".join(old_str.split()[:5])
+        error_msg = f"The exact string 'old_str' was not found in {path}.\n"
+        error_msg += "Make sure whitespace, newlines, and indentation match exactly.\n"
+        error_msg += f"Hint: Your 'old_str' started with: '{first_words}...'\n"
+        error_msg += "Please use read_file to get the exact, current text of the file before trying again."
+        raise ValueError(error_msg)
     if count > 1:
         raise ValueError(
             f"The exact string 'old_str' was found {count} times in {path}. "

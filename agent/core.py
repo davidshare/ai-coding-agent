@@ -60,6 +60,17 @@ class Agent:
 
         print(f"Calling tool: {function_name}({arguments})")
 
+        try:
+            arguments = json.loads(tool_call["function"]["arguments"])
+        except json.JSONDecodeError as e:
+            print(f"  [ERR] Invalid JSON from LLM: {e}")
+            self.history.append({
+                "role": "tool",
+                "tool_call_id": tool_call["id"],
+                "content": f"Error: The arguments provided were not valid JSON. Please ensure your tool call arguments are properly formatted JSON. Error details: {str(e)}",
+            })
+            return
+
         if function_name not in self.tools:
             result = f"Error: Tool '{function_name}' not found"
         else:
@@ -70,33 +81,58 @@ class Agent:
                 approved = True
                 if function_name in ("write_file", "append_to_file", "str_replace_file"):
                     if self.approval.needs_approval_for_write(
-                        arguments["path"], arguments["content"], self.project_root
+                        arguments.get("path", ""), arguments.get(
+                            "content", ""), self.project_root
                     ):
                         approved = self.approval.request_write_approval(
-                            arguments["path"], arguments["content"], self.project_root
+                            arguments.get("path", ""), arguments.get(
+                                "content", ""), self.project_root
                         )
-
-                elif function_name == "update_issue_status":
-                    # Issue status updates are low-risk, no approval needed
-                    approved = True
                 elif function_name == "run_command":
-                    if self.approval.needs_approval_for_command(arguments["command"]):
+                    if self.approval.needs_approval_for_command(arguments.get("command", "")):
                         approved = self.approval.request_command_approval(
-                            arguments["command"], self.project_root
+                            arguments.get("command", ""), self.project_root
                         )
 
                 if not approved:
                     result = "User denied this action. Please try a different approach."
-                    print(f"  [DENIED] User rejected the action")
+                    print(f"[DENIED] User rejected the action")
                 else:
-                    arguments["project_root"] = self.project_root
-                    result = tool.execute(**arguments)
-                    print(f"  [OK] Result: {str(result)[:200]}...")
+                    # RETRY LOGIC: Allow up to 3 attempts for transient or fixable errors
+                    max_retries = 3
+                    for attempt in range(max_retries):
+                        try:
+                            # Inject project_root into arguments
+                            arguments["project_root"] = self.project_root
 
-                print(f"Tool result:\n{str(result)[:200]}...")
+                            # Execute the tool
+                            result = tool.execute(**arguments)
+                            print(f"  [OK] Result: {str(result)[:200]}...")
+                            break  # Success, exit the retry loop
+
+                        except Exception as e:
+                            error_msg = str(e)
+                            print(
+                                f"  [ERR] Attempt {attempt + 1}/{max_retries} failed: {error_msg[:100]}")
+
+                            if attempt == max_retries - 1:
+                                # Final attempt failed
+                                result = f"Tool '{function_name}' failed after {max_retries} attempts. Last error: {error_msg}"
+                            else:
+                                # Feed the error back to the LLM so it can try to fix it
+                                result = f"Error: {error_msg}. Please correct your arguments and try again."
+                                # Add the error to history immediately so the LLM sees it on the next iteration
+                                self.history.append({
+                                    "role": "tool",
+                                    "tool_call_id": tool_call["id"],
+                                    "content": result,
+                                })
+                                # Return early to let the LLM process the error and generate a new tool call
+                                return
+
             except Exception as e:
-                result = f"Error executing tool: {str(e)}"
-                print(f"Tool error: {result}")
+                result = f"Critical error executing tool: {str(e)}"
+                print(f"  [CRITICAL] {result}")
         self.history.append({
             "role": "tool",
             "tool_call_id": tool_call['id'],
