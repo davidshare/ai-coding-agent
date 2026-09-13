@@ -1,0 +1,72 @@
+import json
+
+from agent.llm import LLMclient
+from agent.tools.base import Tool
+from config import Config
+
+
+class Agent:
+    def __init__(self, config: Config, tools: list[Tool]):
+        self.llm = LLMclient(config)
+        self.tools = {tool.name: tool for tool in tools}
+        self.history: list[dict] = []
+        self.project_root = str(config.project_root)
+
+    def run(self, user_message: str) -> str:
+        self.history.append({
+            "role": "user",
+            "content": user_message,
+        })
+
+        max_iterations = 10
+        iteration = 0
+
+        while iteration < max_iterations:
+            iteration += 1
+            print(f"\n[Iteration {iteration}]")
+
+            tool_schemas = [tool.to_json_schema()
+                            for tool in self.tools.values()]
+            response = self.llm.complete(
+                messages=self.history,
+                tools=tool_schemas if tool_schemas else None,
+            )
+
+            self.history.append(response)
+
+            if "tool_calls" in response and response["tool_calls"]:
+                for tool_call in response["tool_calls"]:
+                    self._execute_tool_call(tool_call)
+            else:
+                return response["content"]
+        raise RuntimeError(
+            f"Agent exceeded maximum iterations ({max_iterations}). "
+            "This usually means the agent is stuck in a loop."
+        )
+
+    def _execute_tool_call(self, tool_call: dict) -> None:
+        function_name = tool_call["function"]["name"]
+        arguments = json.loads(tool_call["function"]["arguments"])
+
+        print(f"Calling tool: {function_name}({arguments})")
+
+        if function_name not in self.tools:
+            result = f"Error: Tool '{function_name}' not found"
+        else:
+            try:
+                arguments["project_root"] = self.project_root
+                tool = self.tools[function_name]
+                result = tool.execute(**arguments)
+
+                print(f"Tool result:\n{str(result)[:200]}...")
+            except Exception as e:
+                result = f"Error executing tool: {str(e)}"
+                print(f"Tool error: {result}")
+        self.history.append({
+            "role": "tool",
+            "tool_call_id": tool_call['id'],
+            "content": str(result),
+        })
+
+    def reset(self) -> None:
+        self.history = []
