@@ -1,19 +1,40 @@
 import json
 
 from agent.approval import ApprovalManager
-from agent.llm import LLMclient
+from agent.llm import create_llm_client
 from agent.tools.base import Tool
 from config import Config
 
 
 class Agent:
     def __init__(self, config: Config, tools: list[Tool]):
-        self.llm = LLMclient(config)
+        self.llm = create_llm_client(config)
         self.tools = {tool.name: tool for tool in tools}
         self.history: list[dict] = []
         self.project_root = str(config.project_root)
         self.approval = ApprovalManager(config.approval_mode)
         self.system_prompt = config.system_prompt
+        self.max_history_length = config.max_history_length
+
+    def _trim_history(self) -> None:
+        """Zero-cost history management. No LLM calls, no summarization."""
+        # Only trim if history exceeds the configured limit
+        if len(self.history) > self.max_history_length:
+            print(
+                f"  [MEMORY] Trimming history ({len(self.history)} msgs) to save tokens. Zero API cost.")
+
+            system_msg = self.history[0]
+            first_user_msg = next(
+                (msg for msg in self.history if msg["role"] == "user"), None)
+
+            # Keep only the last 4 messages (immediate context for the next step)
+            recent_messages = self.history[-4:]
+
+            # Rebuild history: System + Original Goal + Recent Context
+            self.history = [system_msg]
+            if first_user_msg and first_user_msg not in recent_messages:
+                self.history.append(first_user_msg)
+            self.history.extend(recent_messages)
 
     def _compress_history(self) -> None:
         """Safely compress the middle of the history without triggering 413 errors."""
@@ -95,8 +116,8 @@ class Agent:
             iteration += 1
 
             # TRIGGER COMPRESSION: Only when history gets genuinely large
-            if len(self.history) > 12:
-                self._compress_history()
+            if len(self.history) > self.max_history_length:
+                self._trim_history()
 
             print(
                 f"\n[Iteration {iteration}] (History length: {len(self.history)})")

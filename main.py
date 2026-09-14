@@ -13,16 +13,18 @@ def main():
     try:
         config = Config.from_env()
     except ValueError as e:
-        print(f"configuration error: {e}")
+        print(f"Configuration error: {e}")
         return
 
     agent = Agent(config, tools=ALL_TOOLS)
     print(f"Agent initialised with {len(ALL_TOOLS)} tools")
-    print(f" Project root: {config.project_root}")
+    print(f"Provider: {config.provider}")
     print(f"Model: {config.model}")
+    print(f"Project root: {config.project_root}")
     print("\nType your message: (or 'quit' to exit)")
     print("=" * 50)
 
+    # Handle Tech Lead mode
     if len(sys.argv) > 1 and sys.argv[1] == "--tech-lead":
         from agent.tech_lead import TechLead
 
@@ -34,6 +36,7 @@ def main():
         print(summary)
         return
 
+    # Standard interactive mode
     while True:
         try:
             user_input = input("\nYou: ").strip()
@@ -50,14 +53,14 @@ def main():
                 continue
 
             response = agent.run(user_input)
-            print(f"\n Agent: {response}")
+            print(f"\nAgent: {response}")
 
         except KeyboardInterrupt:
-            print("\n\nGoodbye!")
+            print("\n\n[AGENT] Shutting down gracefully. Goodbye!")
             break
         except Exception as e:
-            print(f"\nError: {e}")
-            print(f"Full error details:")
+            print(f"\n[ERROR] {e}")
+            print("Full error details:")
             traceback.print_exc()
 
 
