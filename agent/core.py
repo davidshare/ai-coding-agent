@@ -1,7 +1,9 @@
 import json
+import time
 
 from agent.approval import ApprovalManager
 from agent.llm import create_llm_client
+from agent.observability import ObservabilityManager
 from agent.tools.base import Tool
 from config import Config
 
@@ -15,10 +17,10 @@ class Agent:
         self.approval = ApprovalManager(config.approval_mode)
         self.system_prompt = config.system_prompt
         self.max_history_length = config.max_history_length
+        self.obs = ObservabilityManager(self.project_root)
 
     def _trim_history(self) -> None:
         """Zero-cost history management. No LLM calls, no summarization."""
-        # Only trim if history exceeds the configured limit
         if len(self.history) > self.max_history_length:
             print(
                 f"  [MEMORY] Trimming history ({len(self.history)} msgs) to save tokens. Zero API cost.")
@@ -27,157 +29,120 @@ class Agent:
             first_user_msg = next(
                 (msg for msg in self.history if msg["role"] == "user"), None)
 
-            # Keep only the last 4 messages (immediate context for the next step)
             recent_messages = self.history[-4:]
 
-            # Rebuild history: System + Original Goal + Recent Context
             self.history = [system_msg]
             if first_user_msg and first_user_msg not in recent_messages:
                 self.history.append(first_user_msg)
             self.history.extend(recent_messages)
 
-    def _compress_history(self) -> None:
-        """Safely compress the middle of the history without triggering 413 errors."""
-        if len(self.history) <= 12:
-            return  # Not large enough to warrant compression
+    def run(self, user_message: str) -> str:
+        self.obs.log_event("user_prompt", {"message": user_message})
 
-        print("  [MEMORY] Compressing middle history to save tokens...")
-
-        system_msg = self.history[0]
-        first_user_msg = next(
-            (msg for msg in self.history if msg["role"] == "user"), None)
-        recent_messages = self.history[-4:]
-        middle_messages = self.history[1:-4]
-
-        # Remove first_user_msg from middle if it's there, so we don't summarize it twice
-        if first_user_msg and first_user_msg in middle_messages:
-            middle_messages.remove(first_user_msg)
-
-        # SAFETY: Truncate the middle text BEFORE sending to the summarizer
-        # to guarantee we don't hit the 7000-token input limit during compression.
-        summary_text = ""
-        for msg in middle_messages:
-            content = str(msg.get("content", ""))
-            if len(content) > 400:
-                content = content[:400] + "...[truncated for summary]..."
-            summary_text += f"{msg['role']}: {content}\n"
-
-        prompt = (
-            "Summarize the following agent conversation history into a single, concise paragraph. "
-            "Preserve crucial facts, file paths, created files, and current task status. "
-            "Keep it strictly under 150 words.\n\n"
-            f"History:\n{summary_text}"
-        )
+        final_output = ""
+        success = False
 
         try:
-            # Call LLM to summarize. Because we truncated the input, this is safe from 413 errors.
-            response = self.llm.complete(
-                messages=[{"role": "user", "content": prompt}])
-            summary_content = response.get("content", "History summarized.")
-
-            # Rebuild history: System + First User + Summary + Recent
-            self.history = [system_msg]
-            if first_user_msg:
-                self.history.append(first_user_msg)
+            if not self.history and self.system_prompt:
+                self.history.append({
+                    "role": "system",
+                    "content": self.system_prompt,
+                })
 
             self.history.append({
-                "role": "system",
-                "content": f"SUMMARY OF PAST ACTIONS: {summary_content}"
+                "role": "user",
+                "content": user_message,
             })
 
-            self.history.extend(recent_messages)
-            print("  [MEMORY] Compression successful.")
+            max_iterations = 40
+            iteration = 0
 
-        except Exception as e:
-            print(
-                f"  [MEMORY] Compression failed ({e}). Falling back to trimming oldest messages.")
-            # Fallback: If compression fails, just drop the oldest middle messages
-            self.history = [system_msg]
-            if first_user_msg:
-                self.history.append(first_user_msg)
-            self.history.extend(recent_messages)
+            while iteration < max_iterations:
+                iteration += 1
+                self.obs.track_iteration()
 
-    def run(self, user_message: str) -> str:
-        if not self.history and self.system_prompt:
-            self.history.append({
-                "role": "system",
-                "content": self.system_prompt,
-            })
+                if len(self.history) > self.max_history_length:
+                    self._trim_history()
 
-        self.history.append({
-            "role": "user",
-            "content": user_message,
-        })
+                print(
+                    f"\n[Iteration {iteration}] (History length: {len(self.history)})")
 
-        max_iterations = 40
-        iteration = 0
+                tool_schemas = [tool.to_json_schema()
+                                for tool in self.tools.values()]
+                response = self.llm.complete(
+                    messages=self.history,
+                    tools=tool_schemas if tool_schemas else None,
+                )
 
-        while iteration < max_iterations:
-            iteration += 1
+                self.obs.track_llm_response(response)
 
-            # TRIGGER COMPRESSION: Only when history gets genuinely large
-            if len(self.history) > self.max_history_length:
-                self._trim_history()
+                self.history.append(response)
 
-            print(
-                f"\n[Iteration {iteration}] (History length: {len(self.history)})")
+                if "DELEGATE:" in response.get("content", ""):
+                    import re
+                    delegate_match = re.search(
+                        r"DELEGATE:\s*(\S+)", response["content"])
+                    if delegate_match:
+                        issue_id = delegate_match.group(1)
+                        print(
+                            f"\n[AGENT] Detected DELEGATE command for {issue_id}")
+                        self.history.append({
+                            "role": "system",
+                            "content": f"Worker agent spawned for {issue_id}. Continue with next issue or provide summary."
+                        })
+                        continue
 
-            tool_schemas = [tool.to_json_schema()
-                            for tool in self.tools.values()]
-            response = self.llm.complete(
-                messages=self.history,
-                tools=tool_schemas if tool_schemas else None,
+                if "tool_calls" in response and response["tool_calls"]:
+                    for tool_call in response["tool_calls"]:
+                        self._execute_tool_call(tool_call)
+                else:
+                    success = True  # <-- FIX: Set success before returning
+                    final_output = response["content"]
+                    return response["content"]
+
+            raise RuntimeError(
+                f"Agent exceeded maximum iterations ({max_iterations}). "
+                "This usually means the agent is stuck in a loop."
             )
-
-            self.history.append(response)
-
-            # Check if the response contains a DELEGATE command
-            if "DELEGATE:" in response.get("content", ""):
-                # Extract issue ID
-                import re
-                delegate_match = re.search(
-                    r"DELEGATE:\s*(\S+)", response["content"])
-                if delegate_match:
-                    issue_id = delegate_match.group(1)
-                    print(
-                        f"\n[AGENT] Detected DELEGATE command for {issue_id}")
-                    # Spawn a worker agent (this would be implemented next)
-                    # For now, just acknowledge it
-                    self.history.append({
-                        "role": "system",
-                        "content": f"Worker agent spawned for {issue_id}. Continue with next issue or provide summary."
-                    })
-                    continue
-
-            if "tool_calls" in response and response["tool_calls"]:
-                for tool_call in response["tool_calls"]:
-                    self._execute_tool_call(tool_call)
-            else:
-                return response["content"]
-
-        raise RuntimeError(
-            f"Agent exceeded maximum iterations ({max_iterations}). "
-            "This usually means the agent is stuck in a loop."
-        )
+        except Exception as e:
+            final_output = str(e)
+            raise
+        finally:
+            self.obs.finalize_run(success, final_output)
 
     def _execute_tool_call(self, tool_call: dict) -> None:
         function_name = tool_call["function"]["name"]
+
+        start_time = time.time()
+        success = False
+        error_msg = None
 
         try:
             arguments = json.loads(tool_call["function"]["arguments"])
         except json.JSONDecodeError as e:
             print(f"  [ERR] Invalid JSON from LLM: {e}")
+            error_msg = f"Invalid JSON: {str(e)}"
             self.history.append({
                 "role": "tool",
                 "tool_call_id": tool_call["id"],
                 "content": f"Error: The arguments provided were not valid JSON. Error details: {str(e)}",
             })
+            # Track the failure
+            latency = time.time() - start_time
+            self.obs.track_tool_execution(
+                tool_name=function_name,
+                arguments={},
+                success=False,
+                latency=latency,
+                error=error_msg
+            )
             return
 
         print(f"Calling tool: {function_name}({arguments})")
 
         if function_name not in self.tools:
             result = f"Error: Tool '{function_name}' not found"
+            error_msg = result
         else:
             try:
                 tool = self.tools[function_name]
@@ -200,6 +165,7 @@ class Agent:
 
                 if not approved:
                     result = "User denied this action. Please try a different approach."
+                    error_msg = "User denied"
                     print("[DENIED] User rejected the action")
                 else:
                     max_retries = 3
@@ -207,6 +173,7 @@ class Agent:
                         try:
                             arguments["project_root"] = self.project_root
                             result = tool.execute(**arguments)
+                            success = True
                             print(f"  [OK] Result: {str(result)[:200]}...")
                             break
                         except Exception as e:
@@ -222,10 +189,30 @@ class Agent:
                                     "tool_call_id": tool_call["id"],
                                     "content": result,
                                 })
+                                # Track the retry failure
+                                latency = time.time() - start_time
+                                self.obs.track_tool_execution(
+                                    tool_name=function_name,
+                                    arguments=arguments,
+                                    success=False,
+                                    latency=latency,
+                                    error=error_msg
+                                )
                                 return
             except Exception as e:
                 result = f"Critical error executing tool: {str(e)}"
+                error_msg = result
                 print(f"  [CRITICAL] {result}")
+
+        # Track the final result (success or failure)
+        latency = time.time() - start_time
+        self.obs.track_tool_execution(
+            tool_name=function_name,
+            arguments=arguments,
+            success=success,
+            latency=latency,
+            error=error_msg
+        )
 
         # HARD TRUNCATION: The real hero of token management
         result_str = str(result)

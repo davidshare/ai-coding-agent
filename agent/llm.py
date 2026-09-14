@@ -58,7 +58,16 @@ class GroqLLMClient(BaseLLMClient):
             content = message.content if message.content is not None else ""
             role = message.role if message.role is not None else "assistant"
 
-            result = {"role": role, "content": content}
+            # Extract usage stats
+            usage = {}
+            if hasattr(response, "usage") and response.usage:
+                usage = {
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens,
+                    "total_tokens": response.usage.total_tokens,
+                }
+
+            result = {"role": role, "content": content, "usage": usage}
 
             if hasattr(message, "tool_calls") and message.tool_calls:
                 tool_calls_list = []
@@ -183,7 +192,16 @@ class AnthropicLLMClient(BaseLLMClient):
                     },
                 })
 
-        result = {"role": "assistant", "content": content}
+        usage = {}
+        if hasattr(response, "usage") and response.usage:
+            usage = {
+                "prompt_tokens": getattr(response.usage, "input_tokens", 0),
+                "completion_tokens": getattr(response.usage, "output_tokens", 0),
+                "total_tokens": getattr(response.usage, "input_tokens", 0) + getattr(response.usage, "output_tokens", 0),
+            }
+
+        result = {"role": "assistant", "content": content, "usage": usage}
+
         if tool_calls:
             result["tool_calls"] = tool_calls
 
@@ -244,7 +262,16 @@ class NvidiaLLMClient(BaseLLMClient):
 
         role = message.role if message.role is not None else "assistant"
 
-        result = {"role": role, "content": content}
+        # Extract usage stats
+        usage = {}
+        if hasattr(response, "usage") and response.usage:
+            usage = {
+                "prompt_tokens": response.usage.prompt_tokens,
+                "completion_tokens": response.usage.completion_tokens,
+                "total_tokens": response.usage.total_tokens,
+            }
+
+        result = {"role": role, "content": content, "usage": usage}
 
         if hasattr(message, "tool_calls") and message.tool_calls:
             result["tool_calls"] = [
