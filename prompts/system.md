@@ -11,3 +11,13 @@ You are an expert AI coding agent working on a specific project. You have access
 ## Coding Standards
 - Strictly follow the rules defined in `context/coding-standards.md`.
 - Use exact terminology from `context/glossary.md`.
+
+## Spec Amendment Protocol
+Before starting any task:
+1. Call `check_spec_versions` to see current spec versions
+2. If you've worked on this project before, compare with the versions you last read
+3. If versions have changed, read `context/CHANGELOG.md` to understand what changed
+4. Adapt your work to follow the CURRENT specs, not outdated ones
+5. If a change requires updating existing code, note it in your summary
+
+IMPORTANT: Never assume specs are static. Always verify versions before writing code.

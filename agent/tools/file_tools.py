@@ -252,6 +252,48 @@ def update_issue_status(
     return f"Updated {issue_path} status to '{new_status}'"
 
 
+def check_spec_versions(project_root: str) -> str:
+    """Check current versions of all context files.
+
+    Args:
+        project_root: Root directory of the project
+
+    Returns:
+        A report of current spec versions
+    """
+    context_dir = Path(project_root) / "context"
+
+    if not context_dir.exists():
+        return "No context directory found."
+
+    versions = []
+    for item in sorted(context_dir.iterdir()):
+        if item.is_file() and item.suffix == ".md" and item.name != "CHANGELOG.md":
+            content = item.read_text(encoding="utf-8")
+
+            # Extract version from frontmatter
+            version = "unknown"
+            last_updated = "unknown"
+
+            if content.startswith("---"):
+                end_idx = content.find("---", 3)
+                if end_idx != -1:
+                    frontmatter = content[3:end_idx].strip()
+                    for line in frontmatter.splitlines():
+                        if line.startswith("version:"):
+                            version = line.split(":", 1)[1].strip()
+                        elif line.startswith("last_updated:"):
+                            last_updated = line.split(":", 1)[1].strip()
+
+            versions.append(
+                f"- {item.name}: v{version} (updated: {last_updated})")
+
+    if not versions:
+        return "No versioned context files found."
+
+    return "Current spec versions:\n" + "\n".join(versions)
+
+
 READ_FILE_TOOL = Tool(
     name="read_file",
     description=(
@@ -413,6 +455,21 @@ UPDATE_ISSUE_STATUS_TOOL = Tool(
     function=update_issue_status,
 )
 
+CHECK_SPEC_VERSIONS_TOOL = Tool(
+    name="check_spec_versions",
+    description=(
+        "Check the current versions of all context files (specs, standards, glossary). "
+        "Call this BEFORE starting work to see if specs have changed since you last read them. "
+        "If versions have changed, read the CHANGELOG.md to understand what changed and adapt accordingly."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {},
+        "required": [],
+    },
+    function=check_spec_versions,
+)
+
 FILE_TOOLS = [
     READ_FILE_TOOL,
     LIST_DIRECTORY_TOOL,
@@ -420,5 +477,6 @@ FILE_TOOLS = [
     LIST_CONTEXT_FILES_TOOL,
     STR_REPLACE_FILE_TOOL,
     LIST_ISSUES_TOOL,
-    UPDATE_ISSUE_STATUS_TOOL
+    UPDATE_ISSUE_STATUS_TOOL,
+    CHECK_SPEC_VERSIONS_TOOL
 ]
