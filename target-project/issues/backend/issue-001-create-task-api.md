@@ -3,7 +3,7 @@
 ## Metadata
 - **ID**: issue-001
 - **Domain**: backend
-- **Status**: in_progress
+- **Status**: done
 - **Priority**: high
 
 ## Definition of Ready

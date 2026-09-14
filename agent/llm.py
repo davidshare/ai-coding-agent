@@ -1,9 +1,10 @@
-import time
 import json
+import time
 from abc import ABC, abstractmethod
 
-from groq import Groq
 import anthropic
+from groq import Groq
+from openai import OpenAI
 
 from config import Config
 
@@ -189,11 +190,85 @@ class AnthropicLLMClient(BaseLLMClient):
         return result
 
 
+class NvidiaLLMClient(BaseLLMClient):
+    """NVIDIA NIM API client implementation (OpenAI compatible)."""
+
+    def __init__(self, config: Config):
+        self.client = OpenAI(
+            base_url="https://integrate.api.nvidia.com/v1",
+            api_key=config.api_key
+        )
+        self.model = config.model
+        self.max_tokens = config.max_tokens
+        self.temperature = config.temperature
+
+    def complete(self, messages: list[dict], tools: list[dict] | None = None) -> dict:
+        kwargs = {
+            "model": self.model,
+            "messages": messages,
+            "max_tokens": self.max_tokens,
+            "temperature": self.temperature,
+        }
+
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = "auto"
+
+        # Optional: Uncomment the block below if using reasoning models that require it
+        # kwargs["extra_body"] = {
+        #     "chat_template_kwargs": {"thinking": True, "reasoning_effort": "high"}
+        # }
+
+        for attempt in range(3):
+            try:
+                response = self.client.chat.completions.create(**kwargs)
+                break
+            except Exception as e:
+                error_str = str(e).lower()
+                if "rate_limit" in error_str and attempt < 2:
+                    wait_time = 2 ** attempt
+                    print(
+                        f"  [RATE LIMIT] Hit NVIDIA limit. Waiting {wait_time}s before retry...")
+                    time.sleep(wait_time)
+                else:
+                    raise
+
+        message = response.choices[0].message
+        content = message.content if message.content is not None else ""
+
+        # Handle NVIDIA-specific reasoning content if the model outputs it
+        reasoning = getattr(message, "reasoning", None) or getattr(
+            message, "reasoning_content", None)
+        if reasoning:
+            content = f"<reasoning>\n{reasoning}\n</reasoning>\n\n{content}"
+
+        role = message.role if message.role is not None else "assistant"
+
+        result = {"role": role, "content": content}
+
+        if hasattr(message, "tool_calls") and message.tool_calls:
+            result["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": tc.type if hasattr(tc, "type") else "function",
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    },
+                }
+                for tc in message.tool_calls
+            ]
+
+        return result
+
+
 def create_llm_client(config: Config) -> BaseLLMClient:
     """Factory function to create the appropriate LLM client."""
     provider = config.provider.lower()
     if provider == "anthropic":
         return AnthropicLLMClient(config)
+    elif provider == "nvidia":
+        return NvidiaLLMClient(config)
     elif provider == "groq":
         return GroqLLMClient(config)
     else:
