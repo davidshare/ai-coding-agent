@@ -1,5 +1,6 @@
 import json
 import time
+from pathlib import Path
 
 from agent.approval import ApprovalManager
 from agent.llm import create_llm_client
@@ -95,9 +96,13 @@ class Agent:
                 if "tool_calls" in response and response["tool_calls"]:
                     for tool_call in response["tool_calls"]:
                         self._execute_tool_call(tool_call)
+                    self.save_state()
                 else:
-                    success = True  # <-- FIX: Set success before returning
+                    success = True
                     final_output = response["content"]
+                    state_file = Path(self.project_root) / ".agent_state.json"
+                    if state_file.exists():
+                        state_file.unlink()
                     return response["content"]
 
             raise RuntimeError(
@@ -228,3 +233,29 @@ class Agent:
 
     def reset(self) -> None:
         self.history = []
+
+    def save_state(self) -> None:
+        """Save the current conversation history to disk."""
+
+        state_file = Path(self.project_root) / ".agent_state.json"
+        state = {
+            "history": self.history,
+            "project_root": self.project_root,
+        }
+        state_file.write_text(json.dumps(state, indent=2), encoding="utf-8")
+        print("  [STATE] Conversation state saved to .agent_state.json")
+
+    def load_state(self) -> bool:
+        """Load conversation history from disk if it exists."""
+
+        state_file = Path(self.project_root) / ".agent_state.json"
+        if state_file.exists():
+            try:
+                state = json.loads(state_file.read_text(encoding="utf-8"))
+                self.history = state.get("history", [])
+                print(
+                    f"  [STATE] Loaded previous state ({len(self.history)} messages). Type 'resume' to continue.")
+                return True
+            except Exception as e:
+                print(f"  [STATE] Failed to load state: {e}")
+        return False

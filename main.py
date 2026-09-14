@@ -1,5 +1,5 @@
 import sys
-import traceback
+from pathlib import Path
 
 from agent.core import Agent
 from agent.tools import ALL_TOOLS
@@ -36,6 +36,8 @@ def main():
         print(summary)
         return
 
+    has_state = agent.load_state()
+
     # Standard interactive mode
     while True:
         try:
@@ -49,18 +51,38 @@ def main():
 
             if user_input.lower() == "reset":
                 agent.reset()
-                print("Conversation reset")
+                state_file = Path(config.project_root) / ".agent_state.json"
+                if state_file.exists():
+                    state_file.unlink()
+
+                print("Conversation reset and state cleared")
                 continue
+
+            if user_input.lower() == "resume":
+                if has_state and len(agent.history) > 0:
+                    print("Resuming previous session...")
+                    # The agent will automatically process the last tool call or continue
+                    # We just need to trigger the loop. We can do this by re-running the last assistant turn.
+                    # For simplicity, we just let the user provide the next prompt, but the history is intact.
+                    print("History restored. Please provide the next instruction.")
+                    continue
+                else:
+                    print("No previous state found to resume.")
+                    continue
 
             response = agent.run(user_input)
             print(f"\nAgent: {response}")
 
         except KeyboardInterrupt:
-            print("\n\n[AGENT] Shutting down gracefully. Goodbye!")
+            print("\n\n[AGENT] Saving state before shutdown...")
+            agent.save_state()
+            print("Goodbye!")
             break
         except Exception as e:
             print(f"\n[ERROR] {e}")
-            print("Full error details:")
+            # Save state even on crash
+            agent.save_state()
+            import traceback
             traceback.print_exc()
 
 

@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 
 from agent.tools.base import Tool
@@ -62,9 +63,13 @@ def write_file(path: str, content: str, project_root: str) -> str:
     # Write the file
     full_path.write_text(content, encoding="utf-8")
 
-    # Return a summary
-    size = full_path.stat().st_size
-    return f"Wrote {size} bytes to {path}"
+    validation_msg = ""
+    if path.endswith(".py"):
+        error = _validate_python_syntax(full_path)
+        if error:
+            validation_msg = f"\n\n⚠️ WARNING: The file was written, but contains Python syntax errors:\n{error}\nPlease use str_replace_file to fix this before proceeding."
+
+    return f"Successfully wrote {len(content)} bytes to {path}{validation_msg}"
 
 
 def str_replace_file(path: str, old_str: str, new_str: str, project_root: str) -> str:
@@ -114,6 +119,14 @@ def str_replace_file(path: str, old_str: str, new_str: str, project_root: str) -
     # Perform the replacement
     new_content = content.replace(old_str, new_str, 1)
     full_path.write_text(new_content, encoding="utf-8")
+
+    validation_msg = ""
+    if path.endswith(".py"):
+        error = _validate_python_syntax(full_path)
+        if error:
+            validation_msg = f"\n\n⚠️ WARNING: The file was written, but contains Python syntax errors:\n{error}\nPlease use str_replace_file to fix this before proceeding."
+
+    return f"Successfully replaced text in {path}{validation_msg}"
 
     return f"Successfully replaced text in {path}"
 
@@ -292,6 +305,20 @@ def check_spec_versions(project_root: str) -> str:
         return "No versioned context files found."
 
     return "Current spec versions:\n" + "\n".join(versions)
+
+
+def _validate_python_syntax(file_path: Path) -> str | None:
+    """Validate Python syntax. Returns error message if invalid, None if valid."""
+    try:
+        result = subprocess.run(
+            ["python", "-m", "py_compile", str(file_path)],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode != 0:
+            return result.stderr.strip()
+        return None
+    except Exception as e:
+        return f"Validation process failed: {str(e)}"
 
 
 READ_FILE_TOOL = Tool(
